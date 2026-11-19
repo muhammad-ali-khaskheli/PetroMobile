@@ -205,7 +205,7 @@ private fun VlpScreen() {
         TextInput("Vertical depth (ft)", depth) { depth = it }; TextInput("Average fluid specific gravity", sg) { sg = it }; TextInput("Wellhead pressure (psi)", whp) { whp = it }
         Button(onClick = { val d=depth.toFloatOrNull(); val s=sg.toFloatOrNull(); val w=whp.toFloatOrNull(); error=if(d==null||s==null||w==null) "Enter valid numbers." else if(d<=0||s<=0||w<0) "Depth and SG must be positive; WHP cannot be negative." else null; if(error==null) result=w!!+0.433f*s!!*d!! }, modifier=Modifier.fillMaxWidth()) { Text("Calculate bottomhole pressure") }
     } }
-    result?.let { InfoCard("Estimated hydrostatic BHP", "%.1f".format(it)+" psi", "WHP + 0.433 × fluid SG × TVD") }
+    result?.let { InfoCard("Estimated hydrostatic BHP", "%.1f".format(it)+" psi\nWHP + 0.433 × fluid SG × TVD") }
     error?.let { Text(it, color=MaterialTheme.colorScheme.error) }
     InfoCard("Limitation", "Static single-phase hydrostatic estimate only. No multiphase flow, friction, acceleration, temperature profile or VLP correlation is implemented.")
 }
@@ -218,7 +218,7 @@ private fun NodalScreen() {
         TextInput("Reservoir pressure Pr (psi)",pr){pr=it}; TextInput("AOF / qmax (STB/day)",qmax){qmax=it}; TextInput("Required flowing BHP (psi)",pwf){pwf=it}
         Button(onClick={val p=pr.toFloatOrNull();val q=qmax.toFloatOrNull();val b=pwf.toFloatOrNull();error=if(p==null||q==null||b==null) "Enter valid numbers." else if(p<=0||q<=0||b<0||b>p) "Require Pr and qmax > 0 and 0 ≤ Pwf ≤ Pr." else null;if(error==null){val x=b!!/p!!;result=q!!*(1f-0.2f*x-0.8f*x*x)}},modifier=Modifier.fillMaxWidth()){Text("Calculate inflow rate")}
     } }
-    result?.let { InfoCard("Vogel inflow at specified BHP","%.2f".format(it)+" STB/day","Rate calculated using the Vogel inflow equation.") }
+    result?.let { InfoCard("Vogel inflow at specified BHP","%.2f".format(it)+" STB/day\nRate calculated using the Vogel inflow equation.") }
     error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
     InfoCard("Limitation","This is not a full nodal operating-point solver. A validated VLP curve and IPR–VLP intersection are still required.")
 }
@@ -231,7 +231,7 @@ private fun GasLiftScreen() {
         TextInput("Injected gas (Mscf/day)",gas){gas=it};TextInput("Produced liquid (STB/day)",liquid){liquid=it}
         Button(onClick={val g=gas.toFloatOrNull();val l=liquid.toFloatOrNull();error=if(g==null||l==null) "Enter valid numbers." else if(g<0||l<=0) "Gas must be non-negative and liquid rate positive." else null;if(error==null)result=g!!*1000f/l!!},modifier=Modifier.fillMaxWidth()){Text("Calculate injection GLR")}
     }}
-    result?.let{InfoCard("Injection gas/liquid ratio","%.1f".format(it)+" scf/STB","Injected gas rate × 1000 / liquid rate")}
+    result?.let{InfoCard("Injection gas/liquid ratio","%.1f".format(it)+" scf/STB\nInjected gas rate × 1000 / liquid rate")}
     error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
     InfoCard("Limitation","Ratio calculator only. Valve design, unloading, injection pressure traverse and gas-lift optimization are not implemented.")
 }
@@ -244,7 +244,7 @@ private fun EspScreen() {
         TextInput("Liquid rate (STB/day)",rate){rate=it};TextInput("Total dynamic head (ft)",head){head=it};TextInput("Liquid specific gravity",sg){sg=it};TextInput("Pump efficiency (%)",eff){eff=it}
         Button(onClick={val q=rate.toFloatOrNull();val h=head.toFloatOrNull();val s=sg.toFloatOrNull();val e=eff.toFloatOrNull();error=if(q==null||h==null||s==null||e==null) "Enter valid numbers." else if(q<=0||h<=0||s<=0||e<=0||e>100) "Inputs must be positive and efficiency ≤ 100%." else null;if(error==null){val gpm=q!!*42f/1440f;result=gpm*h!!*s!!/(3960f*(e!!/100f))}},modifier=Modifier.fillMaxWidth()){Text("Calculate approximate horsepower")}
     }}
-    result?.let{InfoCard("Approximate pump horsepower","%.2f".format(it)+" hp","Q (gpm) × head (ft) × SG / [3960 × efficiency]")}
+    result?.let{InfoCard("Approximate pump horsepower","%.2f".format(it)+" hp\nQ (gpm) × head (ft) × SG / [3960 × efficiency]")}
     error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
     InfoCard("Limitation","Hydraulic horsepower estimate only. No pump-series selection, stage count, motor sizing, cable losses, gas handling or operating envelope.")
 }
