@@ -69,11 +69,11 @@ fun PetroMobileApp() {
                     "Overview" -> OverviewScreen(well, { well = it }, field, { field = it }, reservoir, { reservoir = it }, { selected = it })
                     "PVT" -> PvtScreen()
                     "IPR" -> IprScreen(prText, { prText = it }, pbText, { pbText = it }, qText, { qText = it }, points, { points = it }, iprError, { iprError = it })
-                    "VLP" -> PlaceholderModule("VLP / Outflow Performance", "Tubing and wellbore pressure-loss workspace.", listOf("Tubing size / ID", "Measured depth (ft)", "Wellhead pressure (psi)", "Wellhead temperature (°F)", "Oil rate (STB/day)", "Water cut (%)", "Gas-oil ratio (scf/STB)"), "Multiphase VLP correlations and pressure traverse are planned; this screen does not calculate VLP.")
-                    "Nodal" -> PlaceholderModule("Nodal Analysis", "Combine inflow and outflow performance to identify the system operating point.", listOf("Reservoir pressure (psi)", "Water cut (%)", "Gas-oil ratio (scf/STB)", "Tubing head pressure (psi)", "Flowline pressure (psi)"), "IPR–VLP intersection solver is planned; no operating point is calculated in this release.")
-                    "Gas Lift" -> PlaceholderModule("Gas Lift Design", "Gas-lift design and optimization workspace.", listOf("Injection gas rate (Mscf/day)", "Injection pressure (psi)", "Gas specific gravity", "Valve depth (ft)", "Target liquid rate (STB/day)"), "Gas-lift valve design and optimization calculations are not implemented yet.")
-                    "ESP" -> PlaceholderModule("ESP Design", "Electric submersible pump design workspace.", listOf("Liquid rate (STB/day)", "Water cut (%)", "Pump setting depth (ft)", "Required head (ft)", "Fluid specific gravity"), "Pump selection, head, stages and power calculations are not implemented yet.")
-                    "Reports" -> PlaceholderModule("Engineering Reports", "Project study summary and output center.", listOf("Report title", "Engineer", "Field / asset", "Well name"), "PDF and spreadsheet report export is planned for a future release.")
+                    "VLP" -> VlpScreen()
+                    "Nodal" -> NodalScreen()
+                    "Gas Lift" -> GasLiftScreen()
+                    "ESP" -> EspScreen()
+                    "Reports" -> ReportsScreen(field, reservoir, well, prText, pbText, qText)
                 }
                 Text("Independent prototype; not affiliated with or equivalent to IPM PROSPER. Verify methods and results independently. Not for operational decisions.", color = Color.Gray, fontSize = 10.sp)
             }
@@ -120,29 +120,41 @@ private fun OverviewScreen(well: String, onWell: (String) -> Unit, field: String
 }
 @Composable
 private fun PvtScreen() {
-    SectionTitle("PVT analysis", "Fluid characterization workspace")
-    var model by remember { mutableStateOf("Black Oil") }
+    SectionTitle("PVT analysis", "Standing solution gas-oil ratio correlation")
     var api by remember { mutableStateOf("35") }
-    var gasGravity by remember { mutableStateOf("0.75") }
-    var gor by remember { mutableStateOf("600") }
-    var temperature by remember { mutableStateOf("180") }
-    var saved by remember { mutableStateOf(false) }
-    Card {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Fluid model", color = navy, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = model == "Black Oil", onClick = { model = "Black Oil" }, label = { Text("Black Oil") })
-                FilterChip(selected = model == "Compositional", onClick = { model = "Compositional" }, label = { Text("Compositional") })
+    var gas by remember { mutableStateOf("0.75") }
+    var temp by remember { mutableStateOf("180") }
+    var pressure by remember { mutableStateOf("4000") }
+    var curve by remember { mutableStateOf<List<IprPoint>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextInput("Oil API gravity (degree)", api) { api = it }
+        TextInput("Gas specific gravity (air = 1)", gas) { gas = it }
+        TextInput("Reservoir temperature (F)", temp) { temp = it }
+        TextInput("Maximum pressure (psi)", pressure) { pressure = it }
+        Button(onClick = {
+            val a = api.toFloatOrNull(); val g = gas.toFloatOrNull(); val t = temp.toFloatOrNull(); val p = pressure.toFloatOrNull()
+            error = when {
+                a == null || g == null || t == null || p == null -> "Enter valid numbers in all fields."
+                a <= 0f || g <= 0f || p <= 0f -> "API, gas gravity and pressure must be positive."
+                else -> null
             }
-            TextInput("Oil API gravity (°API)", api) { api = it }
-            TextInput("Gas specific gravity", gasGravity) { gasGravity = it }
-            TextInput("Solution GOR (scf/STB)", gor) { gor = it }
-            TextInput("Reservoir temperature (°F)", temperature) { temperature = it }
-            Button(onClick = { saved = true }, modifier = Modifier.fillMaxWidth()) { Text("Save PVT inputs") }
-            if (saved) Text("Inputs accepted for this session. Property calculations are not implemented.", color = blue, fontSize = 12.sp)
-        }
-    }
-    InfoCard("Planned PVT outputs", "Bubble-point pressure, solution GOR, oil formation volume factor, oil viscosity, gas Z-factor and water properties.")
+            if (error == null) curve = (0..40).map { i ->
+                val pr = p!! * i / 40f
+                val term = (pr / 18.2f + 1.4f) * Math.pow(10.0, (0.0125f * a!! - 0.00091f * t!!).toDouble()).toFloat()
+                IprPoint(pr, g!! * Math.pow(term.toDouble(), 1.2048).toFloat())
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Calculate PVT curve") }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    } }
+    if (curve.isNotEmpty()) Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Solution GOR vs pressure", color = navy, fontWeight = FontWeight.Bold)
+        Text("Standing correlation · Rs (scf/STB)", color = Color.Gray, fontSize = 11.sp)
+        IprGraph(curve)
+        val last = curve.last()
+        Text("At " + "%.0f".format(last.pressure) + " psi: Rs = " + "%.1f".format(last.rate) + " scf/STB", color = blue, fontWeight = FontWeight.Bold)
+    } }
+    InfoCard("Model limitation", "Standing empirical solution-GOR correlation only. This is not a complete PVT package: oil FVF, viscosity, gas Z-factor, EOS, lab matching and calibration are not included.")
 }
 @Composable
 private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, onPb: (String) -> Unit, qText: String, onQ: (String) -> Unit, points: List<IprPoint>, onPoints: (List<IprPoint>) -> Unit, error: String?, onError: (String?) -> Unit) {
@@ -183,6 +195,71 @@ private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, on
     }
     InfoCard("Model limitation", "Bubble-point pressure is validated but does not select a composite IPR model in this release.")
 }
+
+@Composable
+private fun VlpScreen() {
+    SectionTitle("VLP / pressure traverse", "Static single-phase hydrostatic estimate")
+    var depth by remember { mutableStateOf("8000") }; var sg by remember { mutableStateOf("0.85") }; var whp by remember { mutableStateOf("200") }
+    var result by remember { mutableStateOf<Float?>(null) }; var error by remember { mutableStateOf<String?>(null) }
+    Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextInput("Vertical depth (ft)", depth) { depth = it }; TextInput("Average fluid specific gravity", sg) { sg = it }; TextInput("Wellhead pressure (psi)", whp) { whp = it }
+        Button(onClick = { val d=depth.toFloatOrNull(); val s=sg.toFloatOrNull(); val w=whp.toFloatOrNull(); error=if(d==null||s==null||w==null) "Enter valid numbers." else if(d<=0||s<=0||w<0) "Depth and SG must be positive; WHP cannot be negative." else null; if(error==null) result=w!!+0.433f*s!!*d!! }, modifier=Modifier.fillMaxWidth()) { Text("Calculate bottomhole pressure") }
+    } }
+    result?.let { InfoCard("Estimated hydrostatic BHP", "%.1f".format(it)+" psi", "WHP + 0.433 × fluid SG × TVD") }
+    error?.let { Text(it, color=MaterialTheme.colorScheme.error) }
+    InfoCard("Limitation", "Static single-phase hydrostatic estimate only. No multiphase flow, friction, acceleration, temperature profile or VLP correlation is implemented.")
+}
+@Composable
+private fun NodalScreen() {
+    SectionTitle("Nodal analysis", "Vogel inflow at a specified flowing bottomhole pressure")
+    var pr by remember { mutableStateOf("4000") }; var qmax by remember { mutableStateOf("1000") }; var pwf by remember { mutableStateOf("2000") }
+    var result by remember { mutableStateOf<Float?>(null) }; var error by remember { mutableStateOf<String?>(null) }
+    Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextInput("Reservoir pressure Pr (psi)",pr){pr=it}; TextInput("AOF / qmax (STB/day)",qmax){qmax=it}; TextInput("Required flowing BHP (psi)",pwf){pwf=it}
+        Button(onClick={val p=pr.toFloatOrNull();val q=qmax.toFloatOrNull();val b=pwf.toFloatOrNull();error=if(p==null||q==null||b==null) "Enter valid numbers." else if(p<=0||q<=0||b<0||b>p) "Require Pr and qmax > 0 and 0 ≤ Pwf ≤ Pr." else null;if(error==null){val x=b!!/p!!;result=q!!*(1f-0.2f*x-0.8f*x*x)}},modifier=Modifier.fillMaxWidth()){Text("Calculate inflow rate")}
+    } }
+    result?.let { InfoCard("Vogel inflow at specified BHP","%.2f".format(it)+" STB/day","Rate calculated using the Vogel inflow equation.") }
+    error?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+    InfoCard("Limitation","This is not a full nodal operating-point solver. A validated VLP curve and IPR–VLP intersection are still required.")
+}
+@Composable
+private fun GasLiftScreen() {
+    SectionTitle("Gas lift calculator","Injection gas to produced-liquid ratio")
+    var gas by remember { mutableStateOf("500") }; var liquid by remember { mutableStateOf("500") }
+    var result by remember { mutableStateOf<Float?>(null) }; var error by remember { mutableStateOf<String?>(null) }
+    Card { Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        TextInput("Injected gas (Mscf/day)",gas){gas=it};TextInput("Produced liquid (STB/day)",liquid){liquid=it}
+        Button(onClick={val g=gas.toFloatOrNull();val l=liquid.toFloatOrNull();error=if(g==null||l==null) "Enter valid numbers." else if(g<0||l<=0) "Gas must be non-negative and liquid rate positive." else null;if(error==null)result=g!!*1000f/l!!},modifier=Modifier.fillMaxWidth()){Text("Calculate injection GLR")}
+    }}
+    result?.let{InfoCard("Injection gas/liquid ratio","%.1f".format(it)+" scf/STB","Injected gas rate × 1000 / liquid rate")}
+    error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+    InfoCard("Limitation","Ratio calculator only. Valve design, unloading, injection pressure traverse and gas-lift optimization are not implemented.")
+}
+@Composable
+private fun EspScreen() {
+    SectionTitle("ESP hydraulic calculator","Approximate required horsepower")
+    var rate by remember { mutableStateOf("1000") };var head by remember { mutableStateOf("5000") };var sg by remember { mutableStateOf("1.0") };var eff by remember { mutableStateOf("65") }
+    var result by remember { mutableStateOf<Float?>(null) };var error by remember { mutableStateOf<String?>(null)}
+    Card{Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        TextInput("Liquid rate (STB/day)",rate){rate=it};TextInput("Total dynamic head (ft)",head){head=it};TextInput("Liquid specific gravity",sg){sg=it};TextInput("Pump efficiency (%)",eff){eff=it}
+        Button(onClick={val q=rate.toFloatOrNull();val h=head.toFloatOrNull();val s=sg.toFloatOrNull();val e=eff.toFloatOrNull();error=if(q==null||h==null||s==null||e==null) "Enter valid numbers." else if(q<=0||h<=0||s<=0||e<=0||e>100) "Inputs must be positive and efficiency ≤ 100%." else null;if(error==null){val gpm=q!!*42f/1440f;result=gpm*h!!*s!!/(3960f*(e!!/100f))}},modifier=Modifier.fillMaxWidth()){Text("Calculate approximate horsepower")}
+    }}
+    result?.let{InfoCard("Approximate pump horsepower","%.2f".format(it)+" hp","Q (gpm) × head (ft) × SG / [3960 × efficiency]")}
+    error?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+    InfoCard("Limitation","Hydraulic horsepower estimate only. No pump-series selection, stage count, motor sizing, cable losses, gas handling or operating envelope.")
+}
+@Composable
+private fun ReportsScreen(field:String,reservoir:String,well:String,pr:String,pb:String,q:String) {
+    val report="PETROMOBILE STUDY SUMMARY\nField: "+field+"\nReservoir: "+reservoir+"\nWell: "+well+"\nReservoir pressure: "+pr+" psi\nBubble point: "+pb+" psi\nVogel AOF input: "+q+" STB/day\n\nEducational prototype. Independently validate all results; not for operational decisions."
+    val clipboard=androidx.compose.ui.platform.LocalClipboardManager.current
+    SectionTitle("Study report","Review and copy current project summary")
+    Card{Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+        Text(report,color=navy,fontSize=13.sp)
+        Button(onClick={clipboard.setText(androidx.compose.ui.text.AnnotatedString(report))},modifier=Modifier.fillMaxWidth()){Text("Copy report text")}
+    }}
+    InfoCard("Export status","PDF and spreadsheet exports are not included yet. Copyable text summary is available.")
+}
+
 @Composable
 private fun PlaceholderModule(title: String, description: String, inputs: List<String>, limitation: String) {
     SectionTitle(title, description)
