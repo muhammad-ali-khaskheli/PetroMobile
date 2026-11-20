@@ -48,6 +48,7 @@ fun PetroMobileApp() {
     var prText by remember { mutableStateOf("4000") }
     var pbText by remember { mutableStateOf("2000") }
     var qText by remember { mutableStateOf("1000") }
+    var iprInputMode by remember { mutableStateOf("AOF") }
     var points by remember { mutableStateOf<List<IprPoint>>(emptyList()) }
     var iprError by remember { mutableStateOf<String?>(null) }
     MaterialTheme(colorScheme = lightColorScheme(primary = blue, background = page)) {
@@ -70,7 +71,7 @@ fun PetroMobileApp() {
                 when (selected) {
                     "Overview" -> OverviewScreen(well, { well = it }, field, { field = it }, reservoir, { reservoir = it }, { selected = it })
                     "PVT" -> PvtScreen()
-                    "IPR" -> IprScreen(prText, { prText = it }, pbText, { pbText = it }, qText, { qText = it }, points, { points = it }, iprError, { iprError = it })
+                    "IPR" -> IprScreen(prText, { prText = it }, pbText, { pbText = it }, qText, { qText = it }, iprInputMode, { iprInputMode = it }, points, { points = it }, iprError, { iprError = it })
                     "VLP" -> VlpScreen()
                     "Nodal" -> NodalScreen()
                     "Gas Lift" -> GasLiftScreen()
@@ -174,18 +175,50 @@ private fun PvtScreen() {
     InfoCard("Correlation and limitations", "Standing bubble-point pressure, solution GOR and saturated-oil FVF correlations. No undersaturated-oil compressibility, viscosity, gas Z-factor, Bg, density, EOS or laboratory matching yet. Correlations have limited empirical ranges; validate against fluid data.")
 }
 @Composable
-private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, onPb: (String) -> Unit, qText: String, onQ: (String) -> Unit, points: List<IprPoint>, onPoints: (List<IprPoint>) -> Unit, error: String?, onError: (String?) -> Unit) {
-    SectionTitle("IPR / Inflow performance", "Composite linear-above-Pb and Vogel-below-Pb inflow")
+private fun IprScreen(
+    prText: String, onPr: (String) -> Unit,
+    pbText: String, onPb: (String) -> Unit,
+    qText: String, onQ: (String) -> Unit,
+    inputMode: String, onInputMode: (String) -> Unit,
+    points: List<IprPoint>, onPoints: (List<IprPoint>) -> Unit,
+    error: String?, onError: (String?) -> Unit
+) {
+    SectionTitle("IPR / Inflow performance", "Composite linear-above-Pb and Vogel-below-Pb model")
     Text("Pressures in psi · rate in STB/day", color = Color.Gray, fontSize = 12.sp)
+    Text("Choose what your measured input represents:", color = navy, fontWeight = FontWeight.SemiBold)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("AOF", "PI").forEach { mode ->
+            FilterChip(
+                selected = inputMode == mode,
+                onClick = { onInputMode(mode); onPoints(emptyList()); onError(null) },
+                label = { Text(if (mode == "AOF") "Maximum rate (AOF)" else "Productivity index (PI)") }
+            )
+        }
+    }
     TextInput("Reservoir pressure Pr (psi)", prText, onPr)
     TextInput("Bubble-point pressure Pb (psi)", pbText, onPb)
-    TextInput("Productivity index J (STB/day/psi)", qText, onQ)
+    TextInput(
+        if (inputMode == "AOF") "Composite-model AOF (STB/day)" else "Productivity index J (STB/day/psi)",
+        qText, onQ
+    )
+    Text(
+        if (inputMode == "AOF")
+            "AOF is the calculated rate at Pwf = 0 psi for this composite model. It is not automatically interchangeable with a test-derived Vogel AOF."
+        else
+            "PI is the linear productivity index above bubble point. Use a measured or justified value.",
+        color = Color.Gray, fontSize = 11.sp
+    )
     Button(onClick = {
         val pr = prText.toDoubleOrNull()
         val pb = pbText.toDoubleOrNull()
-        val j = qText.toDoubleOrNull()
+        val input = qText.toDoubleOrNull()
         try {
-            if (pr == null || pb == null || j == null) throw IllegalArgumentException("Enter valid numeric values.")
+            if (pr == null || pb == null || input == null) throw IllegalArgumentException("Enter valid numeric values in every field.")
+            if (!pr.isFinite() || !pb.isFinite() || !input.isFinite() || pr <= 0.0 || pb <= 0.0 || pb > pr || input <= 0.0)
+                throw IllegalArgumentException("Require Pr > 0, 0 < Pb ≤ Pr, and a positive AOF or PI.")
+            val j = if (inputMode == "AOF")
+                PetroleumModels.productivityIndexFromCompositeAof(input, pr, pb)
+            else input
             val samples = (0..40).map { i ->
                 val pwf = pr * i / 40.0
                 IprPoint(PetroleumModels.compositeIpRRate(j, pr, pb, pwf).toFloat(), pwf.toFloat())
@@ -193,6 +226,7 @@ private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, on
             onPoints(samples)
             onError(null)
         } catch (e: IllegalArgumentException) {
+            onPoints(emptyList())
             onError(e.message ?: "Invalid input.")
         }
     }, modifier = Modifier.fillMaxWidth()) { Text("Calculate composite IPR") }
@@ -201,19 +235,24 @@ private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, on
         Card(shape = RoundedCornerShape(14.dp)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Composite IPR result", color = navy, fontWeight = FontWeight.Bold)
-                Text("AOF: %.1f STB/day".format(points.maxOfOrNull { it.rate } ?: 0f), color = blue, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Composite-model AOF: %.2f STB/day".format(points.maxOfOrNull { it.rate } ?: 0f), color = blue, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 IprGraph(points)
-                points.filterIndexed { i, _ -> i % 5 == 0 }.forEach {
+                Text("Flowing BHP (psi)                     Oil rate (STB/day)", color = Color.Gray, fontSize = 10.sp)
+                points.filterIndexed { i, _ -> i % 5 == 0 || i == points.lastIndex }.forEach {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("%.0f psi".format(it.pressure))
-                        Text("%.1f STB/day".format(it.rate), fontWeight = FontWeight.Medium)
+                        Text("%.2f STB/day".format(it.rate), fontWeight = FontWeight.Medium)
                     }
                 }
             }
         }
     }
-    InfoCard("Model limitation", "Composite IPR assumes a supplied constant productivity index and a Vogel saturated-flow branch. It requires calibration against well-test data and does not model completion damage or multiphase inflow.")
+    InfoCard(
+        "Engineering scope",
+        "This is a simplified composite IPR model: linear above Pb and Vogel-shaped below Pb, joined continuously with matching slope. It assumes a constant PI above Pb and a single-phase oil-rate interpretation. It does not model water, gas, skin changes, completion geometry, non-Darcy flow, or well-test calibration. Validate against test data before engineering use."
+    )
 }
+
 
 @Composable
 private fun VlpScreen() {
