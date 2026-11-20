@@ -173,42 +173,44 @@ private fun PvtScreen() {
 }
 @Composable
 private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, onPb: (String) -> Unit, qText: String, onQ: (String) -> Unit, points: List<IprPoint>, onPoints: (List<IprPoint>) -> Unit, error: String?, onError: (String?) -> Unit) {
-    SectionTitle("IPR / Inflow performance", "Simplified Vogel inflow performance curve")
+    SectionTitle("IPR / Inflow performance", "Composite linear-above-Pb and Vogel-below-Pb inflow")
     Text("Pressures in psi · rate in STB/day", color = Color.Gray, fontSize = 12.sp)
     TextInput("Reservoir pressure Pr (psi)", prText, onPr)
     TextInput("Bubble-point pressure Pb (psi)", pbText, onPb)
-    TextInput("Maximum rate qmax (STB/day)", qText, onQ)
+    TextInput("Productivity index J (STB/day/psi)", qText, onQ)
     Button(onClick = {
-        val pr = prText.toFloatOrNull()
-        val pb = pbText.toFloatOrNull()
-        val q = qText.toFloatOrNull()
-        onError(when {
-            pr == null || pb == null || q == null -> "Enter valid numeric values."
-            pr <= 0f || pb < 0f || q <= 0f -> "Pr and qmax must be positive; Pb cannot be negative."
-            pb > pr -> "Pb cannot exceed Pr."
-            else -> null
-        })
-        if (pr != null && pb != null && q != null && pr > 0f && pb >= 0f && pb <= pr && q > 0f) {
-            onPoints((0..30).map { i -> val p = pr * i / 30f; IprPoint(vogelRate(q, p, pr), p) }.reversed())
+        val pr = prText.toDoubleOrNull()
+        val pb = pbText.toDoubleOrNull()
+        val j = qText.toDoubleOrNull()
+        try {
+            if (pr == null || pb == null || j == null) throw IllegalArgumentException("Enter valid numeric values.")
+            val samples = (0..40).map { i ->
+                val pwf = pr * i / 40.0
+                IprPoint(PetroleumModels.compositeIpRRate(j, pr, pb, pwf).toFloat(), pwf.toFloat())
+            }.reversed()
+            onPoints(samples)
+            onError(null)
+        } catch (e: IllegalArgumentException) {
+            onError(e.message ?: "Invalid input.")
         }
-    }, modifier = Modifier.fillMaxWidth()) { Text("Calculate IPR curve") }
+    }, modifier = Modifier.fillMaxWidth()) { Text("Calculate composite IPR") }
     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     if (points.isNotEmpty()) {
         Card(shape = RoundedCornerShape(14.dp)) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Vogel IPR result", color = navy, fontWeight = FontWeight.Bold)
-                Text("AOF: $qText STB/day", color = blue, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Composite IPR result", color = navy, fontWeight = FontWeight.Bold)
+                Text("AOF: %.1f STB/day".format(points.maxOfOrNull { it.rate } ?: 0f), color = blue, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 IprGraph(points)
                 points.filterIndexed { i, _ -> i % 5 == 0 }.forEach {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("${"%.0f".format(it.pressure)} psi")
-                        Text("${"%.1f".format(it.rate)} STB/day", fontWeight = FontWeight.Medium)
+                        Text("%.0f psi".format(it.pressure))
+                        Text("%.1f STB/day".format(it.rate), fontWeight = FontWeight.Medium)
                     }
                 }
             }
         }
     }
-    InfoCard("Model limitation", "Bubble-point pressure is validated but does not select a composite IPR model in this release.")
+    InfoCard("Model limitation", "Composite IPR assumes a supplied constant productivity index and a Vogel saturated-flow branch. It requires calibration against well-test data and does not model completion damage or multiphase inflow.")
 }
 
 @Composable
