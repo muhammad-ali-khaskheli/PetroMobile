@@ -314,7 +314,7 @@ private fun PvtGraph(samples: List<PvtSample>) {
         val width = size.width - 24f; val height = size.height - 24f
         drawLine(Color.LightGray, Offset(left, top), Offset(left, top + height), 2f)
         drawLine(Color.LightGray, Offset(left, top + height), Offset(left + width, top + height), 2f)
-        val rs = samples.map { Offset(left + (it.pressurePsi / maxP * width), top + height - (it.solutionGasOilRatioScfStb / maxRs * height)) }
+        val rs = samples.map { sample -> Offset(x = left + (sample.pressurePsi / maxP * width).toFloat(), y = top + height - (sample.solutionGasOilRatioScfStb / maxRs * height).toFloat()) }
         rs.zipWithNext().forEach { (a,b) -> drawLine(blue,a,b,4f) }
     }
 }
