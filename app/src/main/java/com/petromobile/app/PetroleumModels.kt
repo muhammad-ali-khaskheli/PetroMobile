@@ -107,6 +107,34 @@ object PetroleumModels {
         }
     }
 
+    /**
+     * Converts a specified composite-model AOF (rate at Pwf=0) to the
+     * equivalent constant PI for the same Pr and Pb.
+     * qAOF = J * ((Pr - Pb) + Pb / 1.8).
+     */
+    fun productivityIndexFromCompositeAof(
+        aofStbDay: Double,
+        reservoirPressurePsi: Double,
+        bubblePointPsi: Double
+    ): Double {
+        requirePositive("AOF", aofStbDay)
+        requirePositive("Reservoir pressure", reservoirPressurePsi)
+        requirePositive("Bubble-point pressure", bubblePointPsi)
+        require(bubblePointPsi <= reservoirPressurePsi) { "Bubble-point pressure cannot exceed reservoir pressure." }
+        val aofFactor = (reservoirPressurePsi - bubblePointPsi) + bubblePointPsi / 1.8
+        require(aofFactor > 0.0 && aofFactor.isFinite()) { "Invalid composite IPR pressure range." }
+        return aofStbDay / aofFactor
+    }
+
+    /** Composite-model absolute open-flow rate, defined at Pwf = 0 psi. */
+    fun compositeIprAof(
+        productivityIndexStbDayPsi: Double,
+        reservoirPressurePsi: Double,
+        bubblePointPsi: Double
+    ): Double = compositeIpRRate(
+        productivityIndexStbDayPsi, reservoirPressurePsi, bubblePointPsi, 0.0
+    )
+
     fun standingPvtTable(
         bubblePointPsi: Double,
         api: Double,
