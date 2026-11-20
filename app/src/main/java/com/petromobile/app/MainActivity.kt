@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import android.graphics.Paint
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -309,13 +311,30 @@ private fun TextInput(label: String, value: String, change: (String) -> Unit) {
 private fun PvtGraph(samples: List<PvtSample>) {
     val maxRs = (samples.maxOfOrNull { it.solutionGasOilRatioScfStb } ?: 1.0).coerceAtLeast(1.0)
     val maxP = (samples.maxOfOrNull { it.pressurePsi } ?: 1.0).coerceAtLeast(1.0)
-    Canvas(Modifier.fillMaxWidth().height(220.dp).padding(8.dp)) {
-        val left = 12f; val top = 12f
-        val width = size.width - 24f; val height = size.height - 24f
-        drawLine(Color.LightGray, Offset(left, top), Offset(left, top + height), 2f)
-        drawLine(Color.LightGray, Offset(left, top + height), Offset(left + width, top + height), 2f)
-        val rs = samples.map { sample -> Offset(x = left + (sample.pressurePsi / maxP * width).toFloat(), y = top + height - (sample.solutionGasOilRatioScfStb / maxRs * height).toFloat()) }
-        rs.zipWithNext().forEach { (a,b) -> drawLine(blue,a,b,4f) }
+    Canvas(Modifier.fillMaxWidth().height(270.dp).padding(8.dp)) {
+        val left = 58f; val top = 18f; val right = size.width - 16f; val bottom = size.height - 48f
+        val w = right - left; val h = bottom - top
+        val paint = Paint().apply { color = android.graphics.Color.DKGRAY; textSize = 11f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+        for (i in 0..4) {
+            val fraction = i / 4f
+            val x = left + fraction * w; val y = bottom - fraction * h
+            drawLine(Color(0xFFE0E5EA), Offset(x, top), Offset(x, bottom), 1f)
+            drawLine(Color(0xFFE0E5EA), Offset(left, y), Offset(right, y), 1f)
+            drawContext.canvas.nativeCanvas.drawText("%.0f".format(maxP * fraction), x, bottom + 17f, paint)
+            paint.textAlign = Paint.Align.RIGHT
+            drawContext.canvas.nativeCanvas.drawText("%.0f".format(maxRs * fraction), left - 8f, y + 4f, paint)
+            paint.textAlign = Paint.Align.CENTER
+        }
+        drawLine(Color.DarkGray, Offset(left, top), Offset(left, bottom), 2f)
+        drawLine(Color.DarkGray, Offset(left, bottom), Offset(right, bottom), 2f)
+        val curve = samples.map { Offset(left + (it.pressurePsi / maxP * w).toFloat(), bottom - (it.solutionGasOilRatioScfStb / maxRs * h).toFloat()) }
+        curve.zipWithNext().forEach { (p1,p2) -> drawLine(blue,p1,p2,4f) }
+        paint.textSize = 12f
+        drawContext.canvas.nativeCanvas.drawText("Pressure (psi)", left + w / 2f, size.height - 5f, paint)
+        drawContext.canvas.nativeCanvas.save()
+        drawContext.canvas.nativeCanvas.rotate(-90f, 13f, top + h / 2f)
+        drawContext.canvas.nativeCanvas.drawText("Solution GOR (scf/STB)", 13f, top + h / 2f, paint)
+        drawContext.canvas.nativeCanvas.restore()
     }
 }
 
@@ -323,14 +342,29 @@ private fun PvtGraph(samples: List<PvtSample>) {
 private fun IprGraph(points: List<IprPoint>) {
     val maxQ = max(1f, points.maxOfOrNull { it.rate } ?: 1f)
     val maxP = max(1f, points.maxOfOrNull { it.pressure } ?: 1f)
-    Canvas(Modifier.fillMaxWidth().height(210.dp).padding(8.dp)) {
-        val l = 12f
-        val t = 12f
-        val w = size.width - 24f
-        val h = size.height - 24f
-        drawLine(Color.LightGray, Offset(l, t), Offset(l, t + h), 2f)
-        drawLine(Color.LightGray, Offset(l, t + h), Offset(l + w, t + h), 2f)
-        val coords = points.map { Offset(l + it.rate / maxQ * w, t + h - it.pressure / maxP * h) }
-        coords.zipWithNext().forEach { (a, b) -> drawLine(blue, a, b, 4f) }
+    Canvas(Modifier.fillMaxWidth().height(270.dp).padding(8.dp)) {
+        val left = 58f; val top = 18f; val right = size.width - 16f; val bottom = size.height - 48f
+        val w = right - left; val h = bottom - top
+        val paint = Paint().apply { color = android.graphics.Color.DKGRAY; textSize = 11f; textAlign = Paint.Align.CENTER; isAntiAlias = true }
+        for (i in 0..4) {
+            val fraction = i / 4f
+            val x = left + fraction * w; val y = bottom - fraction * h
+            drawLine(Color(0xFFE0E5EA), Offset(x, top), Offset(x, bottom), 1f)
+            drawLine(Color(0xFFE0E5EA), Offset(left, y), Offset(right, y), 1f)
+            drawContext.canvas.nativeCanvas.drawText("%.0f".format(maxQ * fraction), x, bottom + 17f, paint)
+            paint.textAlign = Paint.Align.RIGHT
+            drawContext.canvas.nativeCanvas.drawText("%.0f".format(maxP * fraction), left - 8f, y + 4f, paint)
+            paint.textAlign = Paint.Align.CENTER
+        }
+        drawLine(Color.DarkGray, Offset(left, top), Offset(left, bottom), 2f)
+        drawLine(Color.DarkGray, Offset(left, bottom), Offset(right, bottom), 2f)
+        val curve = points.map { Offset(left + it.rate / maxQ * w, bottom - it.pressure / maxP * h) }
+        curve.zipWithNext().forEach { (p1,p2) -> drawLine(blue,p1,p2,4f) }
+        paint.textSize = 12f
+        drawContext.canvas.nativeCanvas.drawText("Oil rate (STB/day)", left + w / 2f, size.height - 5f, paint)
+        drawContext.canvas.nativeCanvas.save()
+        drawContext.canvas.nativeCanvas.rotate(-90f, 13f, top + h / 2f)
+        drawContext.canvas.nativeCanvas.drawText("Flowing pressure (psi)", 13f, top + h / 2f, paint)
+        drawContext.canvas.nativeCanvas.restore()
     }
 }
