@@ -120,41 +120,56 @@ private fun OverviewScreen(well: String, onWell: (String) -> Unit, field: String
 }
 @Composable
 private fun PvtScreen() {
-    SectionTitle("PVT analysis", "Standing solution gas-oil ratio correlation")
+    SectionTitle("Black-oil PVT", "Standing correlations · field units")
     var api by remember { mutableStateOf("35") }
     var gas by remember { mutableStateOf("0.75") }
     var temp by remember { mutableStateOf("180") }
-    var pressure by remember { mutableStateOf("4000") }
-    var curve by remember { mutableStateOf<List<IprPoint>>(emptyList()) }
+    var rsInput by remember { mutableStateOf("600") }
+    var table by remember { mutableStateOf<List<PvtSample>>(emptyList()) }
+    var pb by remember { mutableStateOf<Double?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        TextInput("Oil API gravity (degree)", api) { api = it }
+        TextInput("Oil API gravity (°API)", api) { api = it }
         TextInput("Gas specific gravity (air = 1)", gas) { gas = it }
-        TextInput("Reservoir temperature (F)", temp) { temp = it }
-        TextInput("Maximum pressure (psi)", pressure) { pressure = it }
+        TextInput("Reservoir temperature (°F)", temp) { temp = it }
+        TextInput("Solution GOR at bubble point (scf/STB)", rsInput) { rsInput = it }
         Button(onClick = {
-            val a = api.toFloatOrNull(); val g = gas.toFloatOrNull(); val t = temp.toFloatOrNull(); val p = pressure.toFloatOrNull()
-            error = when {
-                a == null || g == null || t == null || p == null -> "Enter valid numbers in all fields."
-                a <= 0f || g <= 0f || p <= 0f -> "API, gas gravity and pressure must be positive."
-                else -> null
-            }
-            if (error == null) curve = (0..40).map { i ->
-                val pr = p!! * i / 40f
-                val term = (pr / 18.2f + 1.4f) * Math.pow(10.0, (0.0125f * a!! - 0.00091f * t!!).toDouble()).toFloat()
-                IprPoint(pr, g!! * Math.pow(term.toDouble(), 1.2048).toFloat())
-            }
-        }, modifier = Modifier.fillMaxWidth()) { Text("Calculate PVT curve") }
+            val a = api.toDoubleOrNull(); val g = gas.toDoubleOrNull()
+            val t = temp.toDoubleOrNull(); val rs = rsInput.toDoubleOrNull()
+            try {
+                if (a == null || g == null || t == null || rs == null) error = "Enter valid numbers in every field."
+                else {
+                    val calculatedPb = PetroleumModels.standingBubblePointPsi(a, g, t, rs)
+                    if (calculatedPb <= 0.0) throw IllegalArgumentException("Calculated bubble-point pressure is not positive. Check inputs and correlation range.")
+                    val samples = PetroleumModels.standingPvtTable(calculatedPb, a, g, t, 41)
+                    pb = calculatedPb
+                    table = samples
+                    error = null
+                }
+            } catch (e: IllegalArgumentException) { error = e.message ?: "Invalid input." }
+        }, modifier = Modifier.fillMaxWidth()) { Text("Calculate black-oil PVT") }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     } }
-    if (curve.isNotEmpty()) Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Solution GOR vs pressure", color = navy, fontWeight = FontWeight.Bold)
-        Text("Standing correlation · Rs (scf/STB)", color = Color.Gray, fontSize = 11.sp)
-        IprGraph(curve)
-        val last = curve.last()
-        Text("At " + "%.0f".format(last.pressure) + " psi: Rs = " + "%.1f".format(last.rate) + " scf/STB", color = blue, fontWeight = FontWeight.Bold)
-    } }
-    InfoCard("Model limitation", "Standing empirical solution-GOR correlation only. This is not a complete PVT package: oil FVF, viscosity, gas Z-factor, EOS, lab matching and calibration are not included.")
+    pb?.let { bubble ->
+        Card { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("PVT results", color = navy, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Standing bubble point: %.1f psi".format(bubble), color = blue, fontWeight = FontWeight.Bold)
+            Text("Solution GOR and oil FVF vs pressure", color = Color.Gray, fontSize = 11.sp)
+            PvtGraph(table)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Pressure (psi)", fontSize = 10.sp, color = Color.Gray)
+                Text("Rs (scf/STB) / Bo (rb/STB)", fontSize = 10.sp, color = Color.Gray)
+            }
+            table.filterIndexed { index, _ -> index % 5 == 0 || index == table.lastIndex }.forEach { sample ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("%.0f".format(sample.pressurePsi), fontSize = 12.sp)
+                    Text("%.1f / %.4f".format(sample.solutionGasOilRatioScfStb, sample.oilFormationVolumeFactorRbStb), fontSize = 12.sp)
+                }
+            }
+            Text("Values are correlation estimates, not lab-matched PVT data.", color = Color.Gray, fontSize = 10.sp)
+        } }
+    }
+    InfoCard("Correlation and limitations", "Standing bubble-point pressure, solution GOR and saturated-oil FVF correlations. No undersaturated-oil compressibility, viscosity, gas Z-factor, Bg, density, EOS or laboratory matching yet. Correlations have limited empirical ranges; validate against fluid data.")
 }
 @Composable
 private fun IprScreen(prText: String, onPr: (String) -> Unit, pbText: String, onPb: (String) -> Unit, qText: String, onQ: (String) -> Unit, points: List<IprPoint>, onPoints: (List<IprPoint>) -> Unit, error: String?, onError: (String?) -> Unit) {
@@ -288,6 +303,20 @@ private fun InfoCard(title: String, message: String) {
 private fun TextInput(label: String, value: String, change: (String) -> Unit) {
     OutlinedTextField(value = value, onValueChange = change, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
 }
+@Composable
+private fun PvtGraph(samples: List<PvtSample>) {
+    val maxRs = (samples.maxOfOrNull { it.solutionGasOilRatioScfStb } ?: 1.0).coerceAtLeast(1.0)
+    val maxP = (samples.maxOfOrNull { it.pressurePsi } ?: 1.0).coerceAtLeast(1.0)
+    Canvas(Modifier.fillMaxWidth().height(220.dp).padding(8.dp)) {
+        val left = 12f; val top = 12f
+        val width = size.width - 24f; val height = size.height - 24f
+        drawLine(Color.LightGray, Offset(left, top), Offset(left, top + height), 2f)
+        drawLine(Color.LightGray, Offset(left, top + height), Offset(left + width, top + height), 2f)
+        val rs = samples.map { Offset(left + (it.pressurePsi / maxP * width), top + height - (it.solutionGasOilRatioScfStb / maxRs * height)) }
+        rs.zipWithNext().forEach { (a,b) -> drawLine(blue,a,b,4f) }
+    }
+}
+
 @Composable
 private fun IprGraph(points: List<IprPoint>) {
     val maxQ = max(1f, points.maxOfOrNull { it.rate } ?: 1f)
